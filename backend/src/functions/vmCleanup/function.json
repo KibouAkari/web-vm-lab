@@ -4,7 +4,7 @@
       "name": "myTimer",
       "type": "timerTrigger",
       "direction": "in",
-      "schedule": "0 */5 * * * *" // alle 5 Minuten
+      "schedule": "0 */5 * * * *"
     }
   ]
 }

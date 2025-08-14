@@ -1,3 +1,5 @@
+import { NextResponse } from "next/server";
+
 export async function POST(req: Request) {
   const body = await req.json();
   const apiUrl = process.env.NEXT_PUBLIC_API_URL!;
@@ -23,4 +25,9 @@ export async function vmAction(
     body: JSON.stringify({ action, os, vmName, duration }),
   });
   return await res.json();
+}
+
+export async function POST(request: Request) {
+  // ...dein Code...
+  return NextResponse.json({ success: true });
 }
