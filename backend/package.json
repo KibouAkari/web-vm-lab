@@ -8,7 +8,9 @@
     "test": "echo \"No tests yet...\""
   },
   "dependencies": {
+    "@azure/arm-compute": "^23.0.0",
     "@azure/functions": "^4.0.0",
+    "@azure/identity": "^4.11.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
