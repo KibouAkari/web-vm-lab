@@ -1,5 +1,5 @@
 {
-  "name": "",
+  "name": "web-vm-lab-backend",
   "version": "1.0.0",
   "description": "",
   "main": "src/functions/*.js",
@@ -8,9 +8,9 @@
     "test": "echo \"No tests yet...\""
   },
   "dependencies": {
-    "@azure/arm-compute": "^23.0.0",
-    "@azure/functions": "^4.0.0",
-    "@azure/identity": "^4.11.1",
+    "@azure/arm-compute": "^21.2.0",
+    "@azure/data-tables": "^13.3.1",
+    "@azure/identity": "^3.3.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

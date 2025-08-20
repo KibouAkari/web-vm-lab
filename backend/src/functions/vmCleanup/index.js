@@ -1,6 +1,7 @@
 const { DefaultAzureCredential } = require("@azure/identity");
 const { ComputeManagementClient } = require("@azure/arm-compute");
 const { NetworkManagementClient } = require("@azure/arm-network");
+const { getAllVMs } = require("../tablestorageop");
 
 // Hier solltest du eine persistente Datenbank verwenden!
 // Für Demo: importiere vmStore aus vmManager.js (nur lokal möglich)
@@ -14,9 +15,9 @@ module.exports = async function (context, myTimer) {
 
   // TODO: Hole alle VMs aus deiner Datenbank und prüfe expiresAt
   // Beispiel: [{ vmName, expiresAt, status }]
-  const expiredVMs = []; // Hier Datenbankabfrage einbauen
+  const vms = await getAllVMs(); // Implement this in tablestorageop.js
 
-  for (const vm of expiredVMs) {
+  for (const vm of vms) {
     if (vm.status !== "deleted" && Date.now() > vm.expiresAt) {
       // deleteVM(context, computeClient, networkClient, vm.vmName);
       context.log(`VM ${vm.vmName} wird gelöscht (Timer-Trigger).`);

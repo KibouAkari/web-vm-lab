@@ -17,6 +17,7 @@ project.lock.json
 /tools/NuGet.exe
 /App_Data
 /secrets
+.env.local
 /data
 .secrets
 appsettings.json

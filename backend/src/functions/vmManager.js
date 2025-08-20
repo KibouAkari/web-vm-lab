@@ -2,6 +2,7 @@ const { DefaultAzureCredential } = require("@azure/identity");
 const { ComputeManagementClient } = require("@azure/arm-compute");
 const { NetworkManagementClient } = require("@azure/arm-network");
 const crypto = require("crypto");
+const { saveVM, getVM } = require("../../services/tableService");
 
 const subscriptionId = process.env.AZURE_SUBSCRIPTION_ID;
 const resourceGroup = process.env.AZURE_RESOURCE_GROUP;
@@ -10,8 +11,7 @@ const vnetName = "myVnet";
 const subnetName = "default";
 const VM_LIFETIME_MS = 60 * 60 * 1000; // 1 Stunde
 
-// In-memory VM store (replace with persistent DB in production)
-const vmStore = {};
+const vmStore = {}; // Temporärer In-Memory Storage
 
 function log(context, msg, ...args) {
   context.log(`[VMManager] ${msg}`, ...args);
@@ -153,76 +153,81 @@ async function createNetworkResources(context, networkClient, vmName, userIp) {
 }
 
 async function createVM(context, req, computeClient, networkClient) {
-  const osChoice = req.body?.os || "ubuntu";
-  const vmName = req.body?.vmName || `vm-${Date.now()}`;
-  const duration = req.body?.duration || VM_LIFETIME_MS;
-  const userIp = getUserIp(req);
-  const username = "azureuser";
-  const password = generatePassword();
+  try {
+    const osChoice = req.body?.os || "ubuntu";
+    const vmName = req.body?.vmName || `vm-${Date.now()}`;
+    const duration = req.body?.duration || VM_LIFETIME_MS;
+    const userIp = getUserIp(req);
+    const username = "azureuser";
+    const password = generatePassword();
 
-  log(context, `Starting VM: ${vmName} (${osChoice}) for IP ${userIp}`);
+    log(context, `Starting VM: ${vmName} (${osChoice}) for IP ${userIp}`);
 
-  const imageReference = getImageReference(osChoice);
-  const { publicIp, nic } = await createNetworkResources(
-    context,
-    networkClient,
-    vmName,
-    userIp
-  );
+    const imageReference = getImageReference(osChoice);
+    const { publicIp, nic } = await createNetworkResources(
+      context,
+      networkClient,
+      vmName,
+      userIp
+    );
 
-  let customData;
-  if (osChoice === "windows10") {
-    customData = getWindowsCustomData(username, password);
-  } else {
-    customData = Buffer.from(
-      getCloudInit(osChoice, username, password)
-    ).toString("base64");
+    let customData;
+    if (osChoice === "windows10") {
+      customData = getWindowsCustomData(username, password);
+    } else {
+      customData = Buffer.from(
+        getCloudInit(osChoice, username, password)
+      ).toString("base64");
+    }
+
+    const vmParams = {
+      location,
+      hardwareProfile: { vmSize: "Standard_B1s" },
+      storageProfile: {
+        imageReference,
+        osDisk: { createOption: "FromImage" },
+      },
+      osProfile: {
+        computerName: vmName,
+        adminUsername: username,
+        adminPassword: password,
+        customData,
+      },
+      networkProfile: { networkInterfaces: [{ id: nic.id }] },
+    };
+
+    log(context, "Creating VM...");
+    await computeClient.virtualMachines.beginCreateOrUpdateAndWait(
+      resourceGroup,
+      vmName,
+      vmParams
+    );
+
+    // Store VM info for timer
+    await saveVM({
+      vmName,
+      os: osChoice,
+      ip: publicIp.ipAddress,
+      status: "running",
+      expiresAt: Date.now() + duration,
+      password,
+      username,
+    });
+
+    log(context, `VM ${vmName} started. IP: ${publicIp.ipAddress}`);
+    return {
+      vmName,
+      ip: publicIp.ipAddress,
+      os: osChoice,
+      status: "running",
+      password,
+      username,
+      message: "VM erfolgreich gestartet.",
+    };
+  } catch (error) {
+    log(context, `Fehler beim Erstellen der VM: ${error.message}`);
+    throw new Error(`VM Erstellung fehlgeschlagen: ${error.message}`);
   }
-
-  const vmParams = {
-    location,
-    hardwareProfile: { vmSize: "Standard_B1s" },
-    storageProfile: {
-      imageReference,
-      osDisk: { createOption: "FromImage" },
-    },
-    osProfile: {
-      computerName: vmName,
-      adminUsername: username,
-      adminPassword: password,
-      customData,
-    },
-    networkProfile: { networkInterfaces: [{ id: nic.id }] },
-  };
-
-  log(context, "Creating VM...");
-  await computeClient.virtualMachines.beginCreateOrUpdateAndWait(
-    resourceGroup,
-    vmName,
-    vmParams
-  );
-
-  // Store VM info for timer
-  vmStore[vmName] = {
-    vmName,
-    os: osChoice,
-    ip: publicIp.ipAddress,
-    status: "running",
-    expiresAt: Date.now() + duration,
-    password,
-    username,
-  };
-
-  log(context, `VM ${vmName} started. IP: ${publicIp.ipAddress}`);
-  return {
-    vmName,
-    ip: publicIp.ipAddress,
-    os: osChoice,
-    status: "running",
-    password,
-    username,
-    message: "VM erfolgreich gestartet.",
-  };
 }
 
 async function stopVM(context, computeClient, vmName) {
@@ -231,7 +236,8 @@ async function stopVM(context, computeClient, vmName) {
     resourceGroup,
     vmName
   );
-  if (vmStore[vmName]) vmStore[vmName].status = "stopped";
+  const vm = await getVM(vmName);
+  if (vm) vm.status = "stopped";
   return { vmName, status: "stopped", message: "VM gestoppt." };
 }
 
@@ -258,7 +264,8 @@ async function deleteVM(context, computeClient, networkClient, vmName) {
   } catch (e) {
     log(context, `NIC/IP delete error: ${e.message}`);
   }
-  if (vmStore[vmName]) vmStore[vmName].status = "deleted";
+  const vm = await getVM(vmName);
+  if (vm) vm.status = "deleted";
   return { vmName, status: "deleted", message: "VM gelöscht." };
 }
 
@@ -308,6 +315,13 @@ setInterval(async () => {
     }
   }
 }, 60 * 1000);
+
+// Am Anfang der Datei nach den Imports:
+if (!subscriptionId || !resourceGroup) {
+  throw new Error(
+    "AZURE_SUBSCRIPTION_ID und AZURE_RESOURCE_GROUP müssen in den Umgebungsvariablen gesetzt sein"
+  );
+}
 
 // Main Azure Function
 module.exports = async function (context, req) {

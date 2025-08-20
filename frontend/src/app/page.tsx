@@ -151,44 +151,63 @@ export default function Home() {
     );
   };
 
-  // VM starten (Demo)
-  const startVM = () => {
+  // Hilfsfunktion für API-Call
+  async function vmApi(action: string, data: any = {}) {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/vm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...data }),
+    });
+    if (!res.ok) throw new Error("API Error");
+    return await res.json();
+  }
+
+  // VM starten
+  const startVM = async () => {
     if (vms.length >= MAX_VMS) {
       setLimitModal(true);
       return;
     }
     setLoading(true);
-    const newVm: VMInfo = {
-      id: `${Date.now()}`,
-      name: `${selectedOs}-${Date.now()}`,
-      ip: `10.${Math.floor(Math.random() * 256)}.${Math.floor(
-        Math.random() * 256
-      )}.${Math.floor(Math.random() * 256)}`,
-      osId: selectedOs,
-      status: "starting",
-      network: {
-        mode: "dhcp",
-        ports: [{ id: "1", port: 22, protocol: "TCP", allowed: true }],
-      },
-    };
-    setVms((prev) => [...prev, newVm]);
-    setActiveVm(newVm.id);
-
-    // Status nach kurzer Zeit auf "running" setzen
-    setTimeout(() => {
-      setVms((prev) =>
-        prev.map((vm) =>
-          vm.id === newVm.id ? { ...vm, status: "running" } : vm
-        )
-      );
+    try {
+      const result = await vmApi("start", { os: selectedOs });
+      const newVm: VMInfo = {
+        id: result.vmName,
+        name: result.vmName,
+        ip: result.ip,
+        osId: selectedOs,
+        status: "starting",
+        network: {
+          mode: "dhcp",
+          ports: [{ id: "1", port: 22, protocol: "TCP", allowed: true }],
+        },
+      };
+      setVms((prev) => [...prev, newVm]);
+      setActiveVm(newVm.id);
+      // Status nach kurzer Zeit auf "running" setzen
+      setTimeout(() => {
+        setVms((prev) =>
+          prev.map((vm) =>
+            vm.id === newVm.id ? { ...vm, status: "running" } : vm
+          )
+        );
+        setLoading(false);
+      }, 1400);
+    } catch (e) {
       setLoading(false);
-    }, 1400);
+      alert("VM konnte nicht gestartet werden.");
+    }
   };
 
-  // VM beenden
-  const terminateVM = (id: string) => {
-    setVms((prev) => prev.filter((vm) => vm.id !== id));
-    if (activeVm === id) setActiveVm(null);
+  // VM beenden/löschen
+  const terminateVM = async (id: string) => {
+    try {
+      await vmApi("delete", { vmName: id });
+      setVms((prev) => prev.filter((vm) => vm.id !== id));
+      if (activeVm === id) setActiveVm(null);
+    } catch (e) {
+      alert("VM konnte nicht gelöscht werden.");
+    }
   };
 
   // Netzwerk-Einstellungen aktualisieren
@@ -210,8 +229,8 @@ export default function Home() {
           ☁️ Cloud VM Lab
         </h1>
         <p className="text-sm text-gray-400 mb-4">
-          Starte vollwertige VMs (Demo). Favorisiere Systeme, um sie oben zu
-          pinnen & per Drag zu sortieren.
+          Starte vollwertige VMs (currently just a Demo). Favorisiere Systeme,
+          um sie oben zu pinnen.
         </p>
 
         {/* OS-Auswahl */}
